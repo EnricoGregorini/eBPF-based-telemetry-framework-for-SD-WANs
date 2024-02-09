@@ -14,14 +14,13 @@ import sys
 
 from int_event_helpers import * #sync_cpes, INTEvent, print_int_local_src_event, print_int_remote_src_event, print_int_sink_event
 
-packet_lost_counter = 0
+lost_packets = []
 
 def get_packet_lost_event(cpu, data, size):
     global packet_lost_counter
-    lost_packets = ct.cast(data, ct.POINTER(ct.c_uint16)).contents.value
-    print("Packet lost notification received. Number of lost packets:", lost_packets)
-
-    packet_lost_counter += lost_packets
+    lost_packet_id = ct.cast(data, ct.POINTER(ct.c_uint16)).contents.value
+    print("Packet lost notification received. Lost packet id:", lost_packet_id)
+    lost_packets.append(lost_packet_id)
 
 # Function to check connection from controller and update the BPF map
 def check_controller_conn_periodic(bpf, key, controller_addr, interval):
@@ -48,7 +47,9 @@ def check_stats(interval=30):
     while True:
         # Function to check statistics (and print them) of OWD and TWD
         check_statistics()
-        print("Packet lost counter:", packet_lost_counter)        
+        if len(sink_events) > 0 and len(lost_packets) > 0:
+            print("Packet lost counter:", len(lost_packets), " over a total of ", sink_events[-1]["Packet ID"])   
+        save_to_file(lost_packets, "./results/PacketLoss/packet_lost_sin.json")     
         time.sleep(interval)
 
 tunnel_int = sys.argv[1]  

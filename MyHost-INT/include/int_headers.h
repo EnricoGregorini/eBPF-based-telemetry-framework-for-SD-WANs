@@ -44,7 +44,7 @@ struct int_metadata_hdr{  // 12 Bytes
 struct int_metadata_entry{   
     __u16 node_id;
     __u16 controller_status;
-    __u32 tunnel_id;
+    __u32 sequence_number;
     __u64 realtime_ts;
     __u64 monotonic_ts;
 };

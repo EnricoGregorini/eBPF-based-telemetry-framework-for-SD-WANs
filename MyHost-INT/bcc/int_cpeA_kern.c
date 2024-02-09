@@ -15,9 +15,9 @@
 
 // Define a BPF map with key and value types
 BPF_HASH(conn_map, u32, u16);    // Hash Map to store the flag of the controller connection status
-BPF_HASH(src_packet_counter, u32, u16);   // Hash map to store the packet counter to sample INT-packets sent
+BPF_HASH(src_packet_counter, u32, u32);   // Hash map to store the packet counter to sample INT-packets sent
 BPF_HASH(sync_time_map, u32, u64);   // Hash map to store the synchronization time between monotonic and realtime clock
-BPF_HASH(rcv_packet_counter, u32, u16);   // Hash map to store the packet counter to sample INT-packets received
+BPF_HASH(rcv_packet_counter, u32, u32);   // Hash map to store the packet counter to sample INT-packets received
 
 BPF_PERF_OUTPUT(packet_lost_event);   // Perf event to notify the packet lost
 BPF_PERF_OUTPUT(update_time_map);
@@ -49,8 +49,8 @@ int tc_source(struct __sk_buff *skb)
 	const __u16 int_len = sizeof(struct int_shim_hdr) + sizeof(struct int_metadata_hdr) + sizeof(struct int_metadata_entry); 
 	int ret;
     /*************** BPF MAPS ********************/
-    u16 start_count = 0;
-    u16 *src_counter;
+    u32 start_count = 0;
+    u32 *src_counter;
 
     u64 *realtime_clk = sync_time_map.lookup(&key);  // find the synchronization time between monotonic and realtime clock
     if (!realtime_clk){   
@@ -209,9 +209,9 @@ int tc_source(struct __sk_buff *skb)
     }
     // Create the metadata entry to insert
 	struct int_metadata_entry mdentry = {
-		.node_id = *src_counter,
+		.node_id = 1,
 		.controller_status = (contr_status ? *contr_status : 0),
-		.tunnel_id = skb->ifindex,   
+        .sequence_number = *src_counter,   
 		.realtime_ts = (*realtime_clk),
 		.monotonic_ts = (monotonic_clk),
 	};
@@ -266,7 +266,7 @@ int tc_sink(struct __sk_buff *skb)
     __u16 off = 0;
 
     /*************** BPF MAPS ********************/
-    u16 start_count = 1;
+    u32 start_count = 1;
 
     u64 *realtime_clk = sync_time_map.lookup(&key);  // find the synchronization time between monotonic and realtime clock
     if (realtime_clk){   
@@ -277,13 +277,10 @@ int tc_sink(struct __sk_buff *skb)
         return TC_ACT_SHOT;
     }
 
-    u16 *rec_counter = rcv_packet_counter.lookup(&key);   // find the packet counter to sample INT-packets received
+    u32 *rec_counter = rcv_packet_counter.lookup(&key);   // find the packet counter to sample INT-packets received
     if (!rec_counter) {
         rcv_packet_counter.update(&key, &start_count);   // Initialize the counter to 1
     } 
-
-
-
     /**************** END BPF MAPS ****************/
 
     bpf_trace_printk("[SINK] Packet received with %d bytes \n", data_end-data);
@@ -361,28 +358,20 @@ int tc_sink(struct __sk_buff *skb)
     }
     #endif
 
-    
     // Build the metadata entry 
-    if(rec_counter)
-        mdentry_sink.node_id = *rec_counter;
-    else
-        mdentry_sink.node_id = 0;
+    mdentry_sink.node_id = 1;   
     mdentry_sink.controller_status = mdentry_source->controller_status;
-    mdentry_sink.tunnel_id = (skb->ifindex);
+    if(rec_counter)
+        mdentry_sink.sequence_number = *rec_counter;
+    else
+        mdentry_sink.sequence_number = 0; 
     mdentry_sink.realtime_ts = *realtime_clk;
     mdentry_sink.monotonic_ts = monotonic_clk;  
-
-    // Convert the fields of the metadata entry to host byte order
-    /* mdentry_source->node_id = (mdentry_source->node_id);
-    mdentry_source->controller_status = (mdentry_source->controller_status);
-    mdentry_source->tunnel_id = (mdentry_source->tunnel_id);
-    mdentry_source->realtime_ts = (mdentry_source->realtime_ts);
-    mdentry_source->monotonic_ts = (mdentry_source->monotonic_ts); */
 
     /* Make a copy of metadata source for passing it to user-space correctly */
     mdentry_source_cpy.node_id = mdentry_source->node_id;
     mdentry_source_cpy.controller_status = mdentry_source->controller_status;
-    mdentry_source_cpy.tunnel_id = mdentry_source->tunnel_id;
+    mdentry_source_cpy.sequence_number = mdentry_source->sequence_number;
     mdentry_source_cpy.realtime_ts = mdentry_source->realtime_ts;
     mdentry_source_cpy.monotonic_ts = mdentry_source->monotonic_ts;
 
@@ -401,14 +390,14 @@ int tc_sink(struct __sk_buff *skb)
     if(!rec_counter)
         return TC_ACT_UNSPEC;
     else 
-        bpf_trace_printk("Current packet id = %d; rec_counter = %d\n", mdentry_source->node_id, *rec_counter);
+        bpf_trace_printk("Current packet id = %d; rec_counter = %d\n", mdentry_source->sequence_number, *rec_counter);
     // Check if there are no packet lost through the rec packet counter
-    if (mdentry_source->node_id - *rec_counter > 1){
-        bpf_trace_printk("Packet lost! Current packet id = %d; rec_counter = %d\n", mdentry_source->node_id, *rec_counter);
-        u32 packet_lost = mdentry_source->node_id - *rec_counter - 1;
+    if (mdentry_source->sequence_number - *rec_counter > 1){
+        bpf_trace_printk("Packet lost! Current packet id = %d; rec_counter = %d\n", mdentry_source->sequence_number, *rec_counter);
+        u32 packet_lost = mdentry_source->sequence_number - *rec_counter - 1;
         packet_lost_event.perf_submit(skb, &packet_lost, sizeof(u32));
     }
-    rcv_packet_counter.update(&key, &mdentry_source->node_id);   // Update the counter
+    rcv_packet_counter.update(&key, &mdentry_source->sequence_number);   // Update the counter
     if(rcv_packet_counter.lookup(&key)){
         #if DEBUG_MODE
         bpf_trace_printk("Packet counter updated to %d\n", *rec_counter);
