@@ -65,10 +65,10 @@ In the scripts folder there is a bash script that has been developed to automate
 
 The script file needs a file containing a set of ip addresses and IP subnet that will be part of the SD-WAN architecture. In the "/home/bonsai" folder you must write a tunnel configuration file named *addresses.txt* containing exactly 6 lines. An example of this file is:
 ```
-10.10.5.11
-10.10.8.11
-10.0.0.5
-10.0.0.8
+10.10.9.11
+192.168.8.11
+10.0.0.1
+10.0.0.2
 10.10.9.0/24
 192.168.8.0/24
 ```
@@ -89,10 +89,10 @@ After having created and tuned the tunnel configuration file, in the scripts fol
 
 The process has to be re-execute on the other endpoint of the tunnel (remote CPE) with every parameter in the opposite order. For example, the *addresses.txt* file in the second CPE will be:
 ```
-10.10.8.11
-10.10.5.11
-10.0.0.8
-10.0.0.5
+192.168.8.11
+10.10.9.11
+10.0.0.2
+10.0.0.1
 192.168.8.0/24
 10.10.9.0/24
 ```
@@ -106,9 +106,9 @@ Since the system uses tunnels to exchange information between the LANs of the ne
 - **GRE** adds 24 Bytes of headers (20 Bytes of new IPv4 header and 4 Bytes of GRE header).
 - **IPSec** adds 8 Bytes of ESP header to include the key and a sequence number for the packets exchanged and approximately additional 100 Bytes for encryption purposes. 
 
-In the end, for now the optimal MTU for this system is set to 1100 Bytes so that no packets need to be fragmented or lost during the INT modification. To modify the MTU of the system it is sufficient to change it on the LAN interface of one of the end-hosts using the following command (supposing interface `eth0` is the one connecting to the CPE):
+In the end, for now the optimal MTU for this system is set to 1300 Bytes so that no packets need to be fragmented or lost during the INT modification. To modify the MTU of the system it is sufficient to change it on the LAN interface of one of the end-hosts using the following command (supposing interface `eth0` is the one connecting to the CPE):
 ```
-ip link set dev eth0 mtu 1100
+ip link set dev eth0 mtu 1300
 ```
 
 ## Enabling CPEs to send packets with INT section
@@ -119,9 +119,9 @@ For example, suppose we have to start the python application on CPE A; first we 
 ## Run the `cpe_int.py` application
 ```
 cd MyHost-INT/bcc/
-sudo python3 cpe_int.py
+sudo python3 cpe_int.py gre1
 ```
-The same command needs to be executed also on the other CPE (endpoint of the SD-WAN tunnel). 
+The same command needs to be executed also on the other CPE (endpoint of the SD-WAN tunnel). Note that "gre1" is the network interface of the GRE tunnel where INT will be applied.
 
 First of all, this python program will call another script to calculate the time difference in terms of Linux Kernel MONOTONIC_CLOCK between the two CPEs that will exchange traffic and use this time_delta to synchronize the devices to get quite precise results. 
 
@@ -133,7 +133,6 @@ Finally it manages every INT metadata collected and extracted from packets and c
 
 
 # Usage
-
 
 # Support
 Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
